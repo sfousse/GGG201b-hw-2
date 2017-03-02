@@ -1,0 +1,144 @@
+####GGG201b Homework 2: Trim and Assemble
+
+###install megahit
+git clone https://github.com/voutcn/megahit.git
+cd megahit
+make -j 4
+
+####Download the 5m E. Coli reads
+mkdir ~/work
+cd ~/work
+
+curl -O -L https://s3.amazonaws.com/public.ged.msu.edu/ecoli_ref-5m.fastq.gz
+
+####Quality Filtering of single-ended reads with Trimmomatic
+	#install trimmomatic 
+	sudo apt-get -y install trimmomatic
+
+#download TruSeq3-PE adapters
+wget https://anonscm.debian.org/cgit/debian-med/trimmomatic.git/plain/adapters/TruSeq3-PE.fa
+
+####split the paired-end reads in the E.coli data into two files of single-ended reads
+#install khmer
+pip install khmer==2.0
+
+#Split the reads 
+gunzip -c ecoli_ref-5m.fastq.gz | \
+    split-paired-reads.py -1 top.R1.fq -2 top.R2.fq
+
+#look at each file to ensure they are in the proper format. two files: of split reads top.R1.fq and top.R2.fq
+head top.R1.fq
+head top.R2.fq
+
+
+#run trimmomatic on split reads
+TrimmomaticPE top.R1.fq top.R2.fq \
+out-r1.fq orphan1.fq out-r2.fq orphan2.fq \
+ILLUMINACLIP:TruSeq3-PE.fa:2:40:15 \
+LEADING:2 TRAILING:2 \
+SLIDINGWINDOW:4:2 \
+MINLEN:25
+
+#Input Read Pairs: 2500000 
+#Both Surviving: 2495801 (99.83%) 
+#Forward Only #Surviving: 3712 (0.15%) 
+#Reverse Only Surviving: 461 (0.02%)
+#Dropped: 26 (0.00%)
+#TrimmomaticPE: Completed successfully
+
+#interleave files
+interleave-reads.py out-r1.fq out-r2.fq > trimmed-pe.fq
+
+	#final: interleaved 2495801 pairs
+	#output written to block device
+
+#confirm that the file looks interleaved /1 and /2
+head trimmed-pe.fq
+
+#assemble the data set with MEGAHIT
+#careful, -12 has two dashes in front that text edit keeps merging into one
+~/megahit/megahit —12 trimmed-pe.fq —r orphan1.fq orphan2.fq -o ecoli-trim
+
+#output
+#[STAT] 117 contigs, total 4577092 bp, min 220 bp, max 246618 bp, avg 39120 bp, N50 105708 bp
+#[Thu Mar  2 19:40:38 2017] ALL DONE. Time elapsed: 342.243811 seconds ---
+
+#save and look at the assembly
+cp megahit_out/final.contigs.fa ecoli-assembly-trim.fa
+
+## This code didn’t work. ‘coli-trim’ wasn’t in file directory cp ecoli-trim/final.contigs.fa ecoli-assembly-trim.fa
+
+###evaluate the assembly using QUAST
+#install QUAST
+cd ~/
+git clone https://github.com/ablab/quast.git -b release_4.2
+export PYTHONPATH=$(pwd)/quast/libs/
+
+#Run QUAST on the assembly
+cd ~/work
+~/quast/quast.py ecoli-assembly-trim.fa -o ecoli_report_trim
+
+python2.7 ~/quast/quast.py ecoli-assembly-trim.fa -o ecoli_report_trim
+
+####Compare quality filtered assembly to assembly without quality filtering
+
+#look at report in the browser to see the summary stats for the quality filtered assembly
+~/work/ecoli_report_trim/report.txt
+
+#current trimmed report 
+All statistics are based on contigs of size >= 500 bp, unless otherwise noted (e.g., "# contigs (>= 0 bp)" and "Total length (>= 0 bp)" include all contigs).
+
+Assembly                    ecoli-assembly-trim
+# contigs (>= 0 bp)         117                
+# contigs (>= 1000 bp)      93                 
+# contigs (>= 5000 bp)      69                 
+# contigs (>= 10000 bp)     64                 
+# contigs (>= 25000 bp)     52                 
+# contigs (>= 50000 bp)     32                 
+Total length (>= 0 bp)      4577092            
+Total length (>= 1000 bp)   4566004            
+Total length (>= 5000 bp)   4508060            
+Total length (>= 10000 bp)  4470849            
+Total length (>= 25000 bp)  4295882            
+Total length (>= 50000 bp)  3578702            
+# contigs                   102                
+Largest contig              246618             
+Total length                4572220            
+GC (%)                      50.74              
+N50                         105708             
+N75                         53842              
+L50                         15                 
+L75                         30                 
+# N's per 100 kbp           0.00
+
+#No quality filters report 
+All statistics are based on contigs of size >= 500 bp, unless otherwise noted (e.g., "# contigs (>= 0 bp)" and "Total length (>= 0 bp)" include all contigs).
+
+Assembly                    ecoli-assembly
+# contigs (>= 0 bp)         117           
+# contigs (>= 1000 bp)      93            
+# contigs (>= 5000 bp)      69            
+# contigs (>= 10000 bp)     64            
+# contigs (>= 25000 bp)     52            
+# contigs (>= 50000 bp)     32            
+Total length (>= 0 bp)      4577284       
+Total length (>= 1000 bp)   4566196       
+Total length (>= 5000 bp)   4508252       
+Total length (>= 10000 bp)  4471041       
+Total length (>= 25000 bp)  4296074       
+Total length (>= 50000 bp)  3578894       
+# contigs                   102           
+Largest contig              246618        
+Total length                4572412       
+GC (%)                      50.74         
+N50                         105708        
+N75                         53842         
+L50                         15            
+L75                         30            
+# N's per 100 kbp           0.00 
+
+####name file as trim-and-assemble.txt and include 1-2sentences about results, conclusions, and comparison at bottom. then upload onto GIT HUB
+
+#The results of the trimmed were exactly the same as the untrimmed except that the overall all length of the trimmed assembly was less. This is because adapter sequences were removed as part of the trimming process so there is less bp total to assemble. 
+
+
